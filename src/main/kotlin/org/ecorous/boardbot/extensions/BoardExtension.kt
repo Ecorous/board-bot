@@ -10,6 +10,7 @@ import dev.kord.core.behavior.GuildBehavior
 import dev.kord.core.behavior.channel.createMessage
 import dev.kord.core.behavior.edit
 import dev.kord.core.behavior.getChannelOfOrNull
+import dev.kord.core.entity.Embed
 import dev.kord.core.entity.Message
 import dev.kord.core.entity.ReactionEmoji
 import dev.kord.core.entity.User
@@ -26,6 +27,7 @@ import dev.kordex.core.components.linkButton
 import dev.kordex.core.i18n.toKey
 import dev.kordex.core.utils.getJumpUrl
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.count
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flow
@@ -37,13 +39,45 @@ import org.ecorous.boardbot.types.*
 class BoardExtension : Extension() {
 	override val name = "test"
 
-	fun embedTemplate(count: Int, emojiMention: String, originalContent: String, msgImage: String?, authorImage: String?, authorName: String?, jumpUrl: String): EmbedBuilder.() -> Unit = {
+	fun embedTemplate(
+		count: Int,
+		emojiMention: String,
+		originalContent: String,
+		msgImage: String?,
+		authorImage: String?,
+		authorName: String?,
+		jumpUrl: String
+	): EmbedBuilder.() -> Unit = {
 		title = "$count $emojiMention"
 		description = originalContent
 		image = msgImage
 		footer {
 			icon = authorImage
 			text = "Posted by ${authorName ?: "Unknown"}"
+		}
+	}
+
+	fun Embed.rebuild(): EmbedBuilder.() -> Unit = {
+		title = this@rebuild.title
+		description = this@rebuild.description
+		color = this@rebuild.color
+		image = this@rebuild.image?.url
+		if (this@rebuild.author != null) {
+			author {
+				name = this@rebuild.author?.name
+				icon = this@rebuild.author?.iconUrl
+			}
+		}
+		if (this@rebuild.footer != null) {
+			footer {
+				text = this@rebuild.footer?.text ?: ""
+				icon = this@rebuild.footer?.iconUrl
+			}
+		}
+		if (this@rebuild.fields.isNotEmpty()) {
+			this@rebuild.fields.forEach { field ->
+				field(field.name, field.inline == true) { field.value }
+			}
 		}
 	}
 
@@ -67,15 +101,23 @@ class BoardExtension : Extension() {
 			logger.error("No emoji found for id ${config.emoji}. Cannot update board message count.")
 			return
 		}
+		val reactionEmoji = ReactionEmoji.from(emoji)
 
 
 
 
 
 		DatabaseHandler.updateBoardMessageCount(originalMessage.id, reactionCount)
-		boardChannel.getMessage(this.boardMessage).let { boardMsg ->
-			boardMsg.edit {
-				embed(embedTemplate(
+		val boardMsg = boardChannel.getMessageOrNull(boardMessage) ?: run {
+			logger.error("Board message $boardMessage not found in channel ${boardChannel.id}. Cannot update board message count.")
+			return
+		}
+		if (boardMsg.getReactors(reactionEmoji).filter { it.id == kord.selfId }.count() == 0) {
+			boardMsg.addReaction(emoji)
+		}
+		boardMsg.edit {
+			embed(
+				embedTemplate(
 					reactionCount,
 					emoji.mention,
 					originalMessage.content,
@@ -83,15 +125,23 @@ class BoardExtension : Extension() {
 					originalMessage.author?.avatar?.cdnUrl?.toUrl(),
 					originalMessage.author?.effectiveName,
 					originalMessage.getJumpUrl()
-				))
+				)
+			)
+			if (originalMessage.embeds.isNotEmpty()) {
+				originalMessage.embeds.forEach { e ->
+					embed(e.rebuild())
+				}
 			}
 		}
 	}
 
 	suspend fun Event.reactionUpdate() {
 		if (this !is ReactionAddEvent && this !is ReactionRemoveEvent) return
-		var message = (if (this is ReactionAddEvent) this.message else (this as ReactionRemoveEvent).message).asMessageOrNull() ?: return
-		val keepMsg = message // keep a reference to the original message, because we might need it later in case it's a board message
+		var message =
+			(if (this is ReactionAddEvent) this.message else (this as ReactionRemoveEvent).message).asMessageOrNull()
+				?: return
+		val keepMsg =
+			message // keep a reference to the original message, because we might need it later in case it's a board message
 		val guild = (if (this is ReactionAddEvent) this.guild else (this as ReactionRemoveEvent).guild) ?: return
 		val config = DatabaseHandler.getServerConfig(guild.id) ?: return
 		val boardChannel = guild.getChannelOfOrNull<TextChannel>(config.channel) ?: return
@@ -121,11 +171,12 @@ class BoardExtension : Extension() {
 		} else if (boardMessage != null) {
 			val msg = boardChannel.getMessage(boardMessage.boardMessage)
 			msg.getReactors(reactionEmoji).collect { r ->
-				if (r.id == message.author?.id) return@collect // don't add the author of the original message to the board reactions
+				if (r.id == message.author?.id || r.id == kord.selfId ) return@collect // don't add the author of the original message to the board reactions
 				boardReactions.add(r)
 			}
 		}
-		val reactions = (reactors.filter { it.id != message.author?.id }.distinct().toList() + boardReactions).distinct()
+		val reactions =
+			(reactors.filter { it.id != message.author?.id && it.id != kord.selfId }.distinct().toList() + boardReactions).distinct()
 		val numOfReactions = reactions.count()
 
 
@@ -142,34 +193,22 @@ class BoardExtension : Extension() {
 		}
 		if (boardMessage != null) return // if we already have a board message, we don't need to do anything else
 		logger.info("No board message found for ${message.id}. Creating a new one.")
-		val bM = boardChannel.createMessage {
-			embed(embedTemplate(
-				numOfReactions,
-				emoji.mention,
-				message.content,
-				message.attachments.firstOrNull()?.let { if (it.isImage) it.url else null },
-				message.author?.avatar?.cdnUrl?.toUrl(),
-				message.author?.effectiveName,
-				message.getJumpUrl()
-			))
+		val boardMsg = boardChannel.createMessage {
+			embed(
+				embedTemplate(
+					numOfReactions,
+					emoji.mention,
+					message.content,
+					message.attachments.firstOrNull()?.let { if (it.isImage) it.url else null },
+					message.author?.avatar?.cdnUrl?.toUrl(),
+					message.author?.effectiveName,
+					message.getJumpUrl()
+				)
+			)
 
 			if (message.embeds.isNotEmpty()) {
 				message.embeds.forEach { e ->
-					embed {
-						title = e.title
-						description = e.description
-						color = e.color
-						image = e.image?.url
-						footer {
-							icon = e.footer?.iconUrl
-							text = e.footer?.text ?: ""
-						}
-						if (e.fields.isNotEmpty()) {
-							e.fields.forEach { field ->
-								field(field.name, field.inline == true) { field.value }
-							}
-						}
-					}
+					embed(e.rebuild())
 				}
 			}
 
@@ -180,12 +219,15 @@ class BoardExtension : Extension() {
 				}
 			}
 		}
+		if (boardMsg.getReactors(reactionEmoji).filter { it.id == kord.selfId }.count() == 0) {
+			boardMsg.addReaction(emoji)
+		}
 		message.author ?: run {
 			logger.error("Message author is null")
 			return
 		}
 		DatabaseHandler.addBoardMessage(
-			bM.id,
+			boardMsg.id,
 			message.channelId,
 			message.id,
 			guild.id,
@@ -223,7 +265,8 @@ class BoardExtension : Extension() {
 						embed {
 							color = DISCORD_RED
 							title = "Invalid Emoji"
-							description = "Tip: cannot use system emojis due to discord being fucky, you have to use a custom guild emoji"
+							description =
+								"Tip: cannot use system emojis due to discord being fucky, you have to use a custom guild emoji"
 						}
 					}
 					return@action
