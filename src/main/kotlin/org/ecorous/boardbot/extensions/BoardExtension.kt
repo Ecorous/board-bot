@@ -84,15 +84,6 @@ class BoardExtension : Extension() {
 					originalMessage.author?.effectiveName,
 					originalMessage.getJumpUrl()
 				))
-//				embed {
-//					title = "$count ${emoji.mention}s"
-//					description = originalMessage.content
-//					image = originalMessage.attachments.firstOrNull()?.let { if (it.isImage) it.url else null }
-//					footer {
-//						icon = originalMessage.author?.avatar?.cdnUrl?.toUrl()
-//						text = "Posted by ${originalMessage.author?.effectiveName}"
-//					}
-//				}
 			}
 		}
 	}
@@ -206,113 +197,11 @@ class BoardExtension : Extension() {
 	override suspend fun setup() {
 		event<ReactionAddEvent> {
 			check { !event.user.asUser().isBot }
-			action {
-				event.reactionUpdate()
-//				val message = event.message
-//				val guild = event.guild ?: return@action
-//				val config = DatabaseHandler.getServerConfig(guild.id) ?: return@action
-//				val channel = guild.getChannelOf<TextChannel>(config.channel) ?: return@action
-//				// get guild emojis, find the one with the same id as the one in the config
-//				val emoji = guild.emojis.filter { it.id == config.emoji }.firstOrNull() ?: return@action
-//				val reactionEmoji = ReactionEmoji.from(emoji)
-//				val reactions = message.getReactors(reactionEmoji)
-//				var numOfReactions = reactions.count()
-//				if (reactions.filter { it.id == message.id }.count() > 0) {
-//					numOfReactions -= 1 // remove the author's reaction - they dont count
-//				}
-//
-//
-//				if (numOfReactions >= config.threshold) {
-//					val message = message.asMessage() // shadow because icba
-//					// need to check if the message is already in the board
-//					val boardMessage = DatabaseHandler.getBoardMessageOrNull(message.id)
-//					boardMessage?.updatePostCount(numOfReactions, guild, message)
-//					if (boardMessage != null) {
-//						logger.info("Board message already exists for ${message.id}. Updated post count.")
-//						return@action
-//					}
-
-//					if (boardMessage != null) {
-//						// update the count
-//						DatabaseHandler.updateBoardMessageCount(message.id, numOfReactions)
-//						channel.getMessage(boardMessage.boardMessage).let { msg ->
-//							msg.edit {
-//								embed {
-//									title = "$numOfReactions ${emoji.mention}s"
-//									description = message.content
-//									image = message.attachments.firstOrNull()?.let { if (it.isImage) it.url else null}
-//									footer {
-//										icon = message.author?.avatar?.cdnUrl?.toUrl()
-//										text = "Posted by ${message.author?.effectiveName}"
-//									}
-//								}
-//							}
-//						}
-//						return@action
-//					}
-//					logger.info("Posting to board")
-//					logger.info("Message: ${message.content}")
-//					logger.info("Reactions: $numOfReactions")
-//					logger.info("Message ID: ${message.id}")
-//					logger.info("Message Author: ${message.author?.mention}")
-//					logger.info("Message Author ID: ${message.author?.id}")
-//					logger.info("Message Effective Name: ${message.author?.effectiveName}")
-//					logger.info("Message Author Avatar: ${message.author?.avatar?.cdnUrl}")
-//					logger.info("Message Attachments: ${message.attachments}")
-//					logger.info("Message: $message")
-//
-//					val bM = channel.createMessage {
-//						embed(embedTemplate(
-//							numOfReactions,
-//							emoji.mention,
-//							message.content,
-//							message.attachments.firstOrNull()?.let { if (it.isImage) it.url else null },
-//							message.author?.avatar?.cdnUrl?.toUrl(),
-//							message.author?.effectiveName,
-//							message.getJumpUrl()
-//						))
-//
-//						components {
-//							linkButton {
-//								label = "Jump".toKey()
-//								url = message.getJumpUrl()
-//							}
-//						}
-//					}
-//					if (message.author == null) {
-//						logger.error("Message author is null")
-//						return@action
-//					}
-//					DatabaseHandler.addBoardMessage(bM.id, message.channelId, message.id, guild.id, message.author!!.id, numOfReactions) // why is !! needed here. we checked for null above
-//				}
-			}
+			action { event.reactionUpdate() }
 		}
 		event<ReactionRemoveEvent> {
 			check { !event.user.asUser().isBot }
-			action {
-				event.reactionUpdate()
-//				val message = event.message
-//				val guild = event.guild ?: return@action
-//				val config = DatabaseHandler.getServerConfig(guild.id) ?: return@action
-//				val channel = guild.getChannelOf<TextChannel>(config.channel) ?: return@action
-//				val emoji = guild.emojis.filter { it.id == config.emoji }.firstOrNull() ?: return@action
-//				val reactionEmoji = ReactionEmoji.from(emoji)
-//				val reactions = message.getReactors(reactionEmoji)
-//				var numOfReactions = reactions.count()
-//				if (reactions.filter { it.id == message.id }.count() > 0) {
-//					numOfReactions -= 1 // remove the author's reaction - they dont count
-//				}
-//				if (numOfReactions < config.threshold) {
-//					val boardMessage = DatabaseHandler.getBoardMessageOrNull(message.id)
-//					if (boardMessage != null) {
-//						channel.getMessage(boardMessage.boardMessage).delete()
-//						DatabaseHandler.deleteBoardMessage(boardMessage.boardMessage)
-//					}
-//				} else {
-//					val message = message.asMessage()
-//					val boardMessage = DatabaseHandler.getBoardMessageOrNull(message.id)
-//				}
-			}
+			action { event.reactionUpdate() }
 		}
 		ephemeralSlashCommand(::ServerConfigSetup) {
 
