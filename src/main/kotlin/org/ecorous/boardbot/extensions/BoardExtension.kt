@@ -9,7 +9,6 @@ import dev.kordex.core.extensions.event
 import dev.kord.core.behavior.GuildBehavior
 import dev.kord.core.behavior.channel.createMessage
 import dev.kord.core.behavior.edit
-import dev.kord.core.behavior.getChannelOf
 import dev.kord.core.behavior.getChannelOfOrNull
 import dev.kord.core.entity.Message
 import dev.kord.core.entity.ReactionEmoji
@@ -24,14 +23,13 @@ import dev.kord.rest.builder.message.embed
 import dev.kordex.core.commands.Arguments
 import dev.kordex.core.components.components
 import dev.kordex.core.components.linkButton
-import dev.kordex.core.events.EventContext
 import dev.kordex.core.i18n.toKey
 import dev.kordex.core.utils.getJumpUrl
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.count
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.toList
 import org.ecorous.boardbot.DatabaseHandler
 import org.ecorous.boardbot.logger
 import org.ecorous.boardbot.types.*
@@ -101,28 +99,59 @@ class BoardExtension : Extension() {
 
 	suspend fun Event.reactionUpdate() {
 		if (this !is ReactionAddEvent && this !is ReactionRemoveEvent) return
-		val message = (if (this is ReactionAddEvent) this.message else (this as ReactionRemoveEvent).message).asMessageOrNull() ?: return
+		var message = (if (this is ReactionAddEvent) this.message else (this as ReactionRemoveEvent).message).asMessageOrNull() ?: return
+		val keepMsg = message // keep a reference to the original message, because we might need it later in case it's a board message
 		val guild = (if (this is ReactionAddEvent) this.guild else (this as ReactionRemoveEvent).guild) ?: return
 		val config = DatabaseHandler.getServerConfig(guild.id) ?: return
-		val channel = guild.getChannelOfOrNull<TextChannel>(config.channel) ?: return
+		val boardChannel = guild.getChannelOfOrNull<TextChannel>(config.channel) ?: return
 		val emoji = guild.emojis.filter { it.id == config.emoji }.firstOrNull() ?: return
 		val reactionEmoji = ReactionEmoji.from(emoji)
-		val reactors = message.getReactors(reactionEmoji).filter { it.id != message.author?.id }.distinct() // filter out the message author
-		val numOfReactions = reactors.count()
+		var reactors = message.getReactors(reactionEmoji)
+
+		val originalMessageId = DatabaseHandler.getOriginalMessageOrNull(message.id)
+		val isBoardMessage = originalMessageId != null
+		if (originalMessageId != null) {
+			// if the message is a board message, we need to get the original message
+			val tmp = boardChannel.getMessageOrNull(originalMessageId) ?: run {
+				logger.error("Original message for ${message.id} not found. Deleting board message.")
+				message.delete()
+				return
+			}
+			message = tmp
+			reactors = message.getReactors(reactionEmoji) // get the reactors for the original message
+		}
 		val boardMessage = DatabaseHandler.getBoardMessageOrNull(message.id)
+		val boardReactions = mutableListOf<User>()
+		if (isBoardMessage) {
+			keepMsg.getReactors(reactionEmoji).collect { r ->
+				if (r.id == message.author?.id) return@collect // don't add the author of the original message to the board reactions
+				boardReactions.add(r)
+			}
+		} else if (boardMessage != null) {
+			val msg = boardChannel.getMessage(boardMessage.boardMessage)
+			msg.getReactors(reactionEmoji).collect { r ->
+				if (r.id == message.author?.id) return@collect // don't add the author of the original message to the board reactions
+				boardReactions.add(r)
+			}
+		}
+		val reactions = (reactors.filter { it.id != message.author?.id }.distinct().toList() + boardReactions).distinct()
+		val numOfReactions = reactions.count()
+
+
 
 		if (numOfReactions < config.threshold) {
 			if (boardMessage != null) {
-				channel.getMessage(boardMessage.boardMessage).delete()
+				boardChannel.getMessage(boardMessage.boardMessage).delete()
 				DatabaseHandler.deleteBoardMessage(boardMessage.boardMessage)
 				logger.info("Deleted board message for ${message.id} due to reaction count dropping below threshold.")
 			}
+			return
 		} else {
 			boardMessage?.updatePostCount(numOfReactions, guild, message)
 		}
 		if (boardMessage != null) return // if we already have a board message, we don't need to do anything else
 		logger.info("No board message found for ${message.id}. Creating a new one.")
-		val bM = channel.createMessage {
+		val bM = boardChannel.createMessage {
 			embed(embedTemplate(
 				numOfReactions,
 				emoji.mention,
@@ -133,6 +162,26 @@ class BoardExtension : Extension() {
 				message.getJumpUrl()
 			))
 
+			if (message.embeds.isNotEmpty()) {
+				message.embeds.forEach { e ->
+					embed {
+						title = e.title
+						description = e.description
+						color = e.color
+						image = e.image?.url
+						footer {
+							icon = e.footer?.iconUrl
+							text = e.footer?.text ?: ""
+						}
+						if (e.fields.isNotEmpty()) {
+							e.fields.forEach { field ->
+								field(field.name, field.inline == true) { field.value }
+							}
+						}
+					}
+				}
+			}
+
 			components {
 				linkButton {
 					label = "Jump".toKey()
@@ -140,7 +189,7 @@ class BoardExtension : Extension() {
 				}
 			}
 		}
-		if (message.author == null) {
+		message.author ?: run {
 			logger.error("Message author is null")
 			return
 		}

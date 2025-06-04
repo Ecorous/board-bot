@@ -69,6 +69,14 @@ object DatabaseHandler {
 		return getServerConfig(server.snowflake)
 	}
 
+	fun getOriginalMessageOrNull(boardMessage: Snowflake): Snowflake? {
+		return transaction(db) {
+			BoardMessagesTable.selectAll().where { BoardMessagesTable.boardMessage eq boardMessage.long }.singleOrNull()?.let {
+				Snowflake(it[BoardMessagesTable.message])
+			}
+		}
+	}
+
 	fun getBoardMessageOrNull(originalMessage: Snowflake): BoardMessage? {
 		return transaction(db) {
 			BoardMessagesTable.selectAll().where { BoardMessagesTable.message eq originalMessage.long }.singleOrNull()?.let {

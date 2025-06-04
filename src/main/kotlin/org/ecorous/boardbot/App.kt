@@ -4,21 +4,13 @@
 package org.ecorous.boardbot
 
 import dev.kordex.core.ExtensibleBot
-import dev.kordex.core.utils.env
-import dev.kord.common.entity.DiscordEmoji
-import dev.kord.common.entity.Snowflake
-import dev.kord.core.entity.Emoji
-import dev.kord.core.entity.Guild
-import dev.kord.gateway.ALL
 import dev.kord.gateway.Intent
-import dev.kord.gateway.Intents
 import dev.kord.gateway.PrivilegedIntent
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.forEach
 import org.ecorous.boardbot.extensions.BoardExtension
+import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
-val logger = LoggerFactory.getLogger("BoardBot")
+val logger: Logger = LoggerFactory.getLogger("BoardBot")
 
 @OptIn(PrivilegedIntent::class)
 suspend fun main() {
@@ -34,7 +26,7 @@ suspend fun main() {
 			+Intent.MessageContent
 		}
 		extensions {
-			add({ BoardExtension() })
+			add(::BoardExtension)
 		}
 	}
 
